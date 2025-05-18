@@ -1,4 +1,5 @@
 using FliegenPilz.Proto;
+using Microsoft.Extensions.Logging;
 
 namespace FliegenPilz.Net;
 
@@ -38,6 +39,8 @@ public class RpcContext(NetClient client) : IDisposable, IAsyncDisposable
 public interface IRpcHandler
 {
     Task HandlePacket(PacketReader reader, RpcContext ctx, CancellationToken ct);
+
+    void HandleException(Exception e);
 }
 
 public class RpcClient<TH>(NetClient client, TH handler) : IDisposable, IAsyncDisposable
@@ -55,6 +58,11 @@ public class RpcClient<TH>(NetClient client, TH handler) : IDisposable, IAsyncDi
             var pr = pkt.AsReader();
             await _handler.HandlePacket(pr, _ctx, ct);
         }
+    }
+
+    public void HandleException(Exception e)
+    {
+        _handler.HandleException(e);
     }
 
     public void Dispose()
@@ -92,6 +100,7 @@ public class RpcServer<T, TH>(NetListener listener, T handler)
             }
             catch (Exception e)
             {
+                client.HandleException(e);
                 await client.DisposeAsync();
                 // Handle exception
             }

@@ -37,8 +37,13 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
         }
     }
 
+    public void HandleException(Exception e)
+    {
+        logger.LogError(e, "Exception in LoginHandler");
+    }
 
-    public async Task HandleSelectWorld(SelectWorldReq req, RpcContext ctx, CancellationToken ct)
+
+    private async Task HandleSelectWorld(SelectWorldReq req, RpcContext ctx, CancellationToken ct)
     {
         var character = new CharView
         {
@@ -87,15 +92,7 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
 
             }
         };
-
-
-        var view = new CharRankView()
-        {
-            View = character,
-            RankInfo = null
-        };
-
-
+        
         var resp = new CharViewListResp
         {
             Characters = new ShroomList<I8, CharRankView>(new List<CharRankView>()),
@@ -104,15 +101,11 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
             BuySlots = 0
         };
         
-        resp.Characters.Items.Add(view);
-
-        var pw = new PacketWriter();
-        pw.WriteUShort((ushort)SendOpcodes.SelectWorldResult);
-        pw.Write(resp);
-
-        var pkt = pw.ToPacket();
-
-        logger.LogInformation("{}", pkt.ToString());
+        resp.Characters.Items.Add(new CharRankView()
+        {
+            View = character,
+            RankInfo = null
+        });
         
         
         await ctx.ReplyAsync(resp, ct);
