@@ -8,14 +8,14 @@ public class NetCipher
     private PacketCipher _packetCipher;
     private ushort _version;
     
-    public NetCipher(IgContext igContext, PacketCipher packetCipher, ushort version)
+    public NetCipher(IgContext igContext, PacketCipher packetCipher, ShroomVersion version)
     {
         _igContext = igContext;
         _packetCipher = packetCipher;
-        _version = version;
+        _version = version.Version;
     }
 
-    public NetCipher(RoundKey roundKey, ushort version): this(IgContext.Default, new PacketCipher(roundKey), version)
+    public NetCipher(RoundKey roundKey, ShroomVersion version): this(IgContext.Default, new PacketCipher(roundKey), version)
     {
         
     }

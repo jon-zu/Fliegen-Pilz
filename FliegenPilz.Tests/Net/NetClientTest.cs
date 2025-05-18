@@ -10,8 +10,8 @@ using Xunit;
 
 namespace FliegenPilz.Tests.Net;
 
-[TestSubject(typeof(NetCodec))]
-public class NetCodecTest
+[TestSubject(typeof(NetClient))]
+public class NetClientTest
 {
     [Fact]
     public async Task ClientServer()
@@ -19,26 +19,21 @@ public class NetCodecTest
         var addr = IPAddress.Loopback;
         const int port = 38120;
         var listener = new TcpListener(addr, port);
+        listener.Start();
+        const LocaleCode locale = LocaleCode.Global;
+        var netListener = new NetListener(listener, new HandshakeGenerator(new ShroomVersion(95), "1", locale));
         var cts = new CancellationTokenSource();
 
         var tcs = new TaskCompletionSource<string>("");
-
-        var handshake = new Handshake(new ShroomVersion(95), "1", RoundKey.GetRandom(), RoundKey.GetRandom(), 2);
 
         // Spawn server in new task
         var serverTask = Task.Run(async () =>
         {
             try
             {
-                listener.Start();
-                var tcpClient = await listener.AcceptTcpClientAsync(cts.Token);
-                var netClient = await NetCodec.AcceptServerAsync(tcpClient, handshake, cts.Token);
-
-
+                var netClient = await netListener.AcceptAsync(cts.Token);
                 using var pkt = await netClient.ReadPacketAsync(cts.Token);
                 await netClient.WritePacketAsync(pkt.Span, cts.Token);
-
-
                 await tcs.Task;
             }
             catch (Exception ex)
@@ -52,7 +47,7 @@ public class NetCodecTest
         {
             try
             {
-                await using var tcpClient = await NetCodec.ConnectClientAsync(addr.ToString(), port, cts.Token);
+                await using var tcpClient = await NetClient.ConnectClientAsync(addr.ToString(), port, cts.Token);
 
 
                 var pw = new PacketWriter();

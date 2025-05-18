@@ -2,7 +2,7 @@ using FliegenPilz.Crypto;
 
 namespace FliegenPilz.Net;
 
-public class HandshakeGenerator(ShroomVersion version, string subVersion, byte localeCode)
+public class HandshakeGenerator(ShroomVersion version, string subVersion, LocaleCode localeCode)
 {
     public Handshake GenerateHandshake()
     {

@@ -3,26 +3,24 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 using DotNext.Buffers;
+using FliegenPilz.Proto;
 
 namespace FliegenPilz.Net;
 
-public ref struct PacketWriter: IDisposable
+public ref struct PacketWriter(int initialCapacity = 4096, MemoryAllocator<byte>? allocator = null)
+    : IDisposable
 {
-    private BufferWriterSlim<byte> _inner;
+    private BufferWriterSlim<byte> _inner = new(initialCapacity, allocator);
 
-    public PacketWriter(int initialCapacity = 4096, MemoryAllocator<byte>? allocator = null)
-    {
-        _inner = new BufferWriterSlim<byte>(initialCapacity, allocator);
-    }
-    
-    public IMemoryOwner<byte> DetachBuffer()
+    private MemoryOwner<byte> DetachBuffer()
     {
         return _inner.TryDetachBuffer(out var owner) ? owner : throw new InvalidOperationException();
     }
 
     public Packet ToPacket()
     {
-        return new Packet(DetachBuffer());
+        var len = _inner.WrittenCount;
+        return new Packet(DetachBuffer(), len);
     }
 
     /*public void WriteOpcode(SendOpcodes opcode)
@@ -37,7 +35,7 @@ public ref struct PacketWriter: IDisposable
     
     public void WriteUShort(ushort value)
     {
-        this.WriteShort(unchecked((short)value));
+        WriteShort(unchecked((short)value));
     }
     
     public void WriteInt(int value)
@@ -47,7 +45,7 @@ public ref struct PacketWriter: IDisposable
     
     public void WriteUInt(uint value)
     {
-        this.WriteInt(unchecked((int)value));
+        WriteInt(unchecked((int)value));
     }
     
     public void WriteLong(long value)
@@ -60,10 +58,10 @@ public ref struct PacketWriter: IDisposable
         WriteLong(unchecked((long)value));
     }
     
-    /*public void WriteTime(FileTime value)
+    public void WriteTime(FileTime value)
     {
         WriteLong(value.RawValue);
-    }*/
+    }
     
     public void WriteBytes(ReadOnlySpan<byte> value)
     {
@@ -98,8 +96,8 @@ public ref struct PacketWriter: IDisposable
         BinaryPrimitives.WriteUInt128LittleEndian(span, value);
         
         var data = MemoryMarshal.Cast<byte, int>(span);
-        for(var i = 4; i > 0; i--)
-            WriteInt(data[i - 1]);
+        for(var i = 0; i < 4; i++)
+            WriteInt(data[4 - i - 1]);
     }
     
     public void WriteDurMs16(TimeSpan value)
@@ -117,10 +115,10 @@ public ref struct PacketWriter: IDisposable
         _inner.Add(value);
     }
 
-    /*public void Write<T>(T value) where T: IEncodePacket
+    public void Write<T>(T value) where T: IEncodePacket
     {
         value.EncodePacket(ref this);
-    }*/
+    }
 
     public void WriteBool(bool value)
     {

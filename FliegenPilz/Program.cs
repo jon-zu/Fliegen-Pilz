@@ -1,5 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-
+﻿using System.Net;
 using FliegenPilz;
 using FliegenPilz.Crypto;
 using FliegenPilz.Net;
@@ -10,11 +9,16 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
         // Services
+        services.AddSingleton(new HandshakeGenerator(new ShroomVersion(95), "1", LocaleCode.Global));
+        services.AddSingleton(new ServerConfig
+        {
+            ListenAddress = IPAddress.Any,
+            LoginPort = 8484
+        });
         services.AddSingleton<Server>();
-        services.AddSingleton<HandshakeGenerator>(new HandshakeGenerator(new ShroomVersion(95), "1", 2));
     })
     .Build();
 
 // Start server
 var server = host.Services.GetRequiredService<Server>();
-await server.StartAsync(CancellationToken.None);
+await server.RunAsync(CancellationToken.None);

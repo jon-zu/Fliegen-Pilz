@@ -1,17 +1,38 @@
-using System.Buffers;
 using FliegenPilz.Crypto;
 
 namespace FliegenPilz.Net;
 
+public enum LocaleCode: byte
+{
+    Korea = 1,
+    KoreaT = 2,
+    Japan = 3,
+    China = 4,
+    ChinaT = 5,
+    Taiwan = 6,
+    TaiwanT = 7,
+    Global = 8,
+    Europe = 9,
+    RlsPe = 10
+}
+
 public class Handshake
 {
+    private static LocaleCode LocaleFromByte(byte code)
+    {
+        if(code is < 1 or > 10)
+            throw new ArgumentOutOfRangeException(nameof(code), "Locale code must be between 1 and 10");
+        return (LocaleCode)code;
+    }
+    
+    
     public ShroomVersion Version { get; }
     public string SubVersion { get; }
     public RoundKey SendKey { get; }
     public RoundKey ReceiveKey { get; }
-    public byte LocaleCode { get; }
+    public LocaleCode LocaleCode { get; }
 
-    public Handshake(ShroomVersion version, string subVersion, RoundKey sendKey, RoundKey receiveKey, byte localeCode)
+    public Handshake(ShroomVersion version, string subVersion, RoundKey sendKey, RoundKey receiveKey, LocaleCode localeCode)
     {
         Version = version;
         SubVersion = subVersion;
@@ -26,7 +47,7 @@ public class Handshake
         var subVersion = reader.ReadString();
         var sendKey = reader.ReadUInt();
         var receiveKey = reader.ReadUInt();
-        var localeCode = reader.ReadByte();
+        var localeCode = LocaleFromByte(reader.ReadByte());
 
         // Ensure the end of the packet is reached
         if (reader.Remaining > 0)
@@ -42,6 +63,6 @@ public class Handshake
         writer.WriteString(SubVersion);
         writer.WriteUInt(SendKey.Key);
         writer.WriteUInt(ReceiveKey.Key);
-        writer.WriteByte(LocaleCode);
+        writer.WriteByte((byte)LocaleCode);
     }
 }

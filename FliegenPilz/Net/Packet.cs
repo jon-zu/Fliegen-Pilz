@@ -2,34 +2,37 @@ using System.Buffers;
 
 namespace FliegenPilz.Net;
 
-public struct Packet : IDisposable
+public struct Packet(IMemoryOwner<byte> data, int length) : IDisposable
 {
-    private IMemoryOwner<byte> _data;
-    public IMemoryOwner<byte> Inner => _data;
-    
-    public int Length => _data.Memory.Length;
+    public IMemoryOwner<byte> Inner => data;
 
-    public Packet(IMemoryOwner<byte> data)
-    {
-        _data = data;
-    }
-    
-    public static Packet FromMemoryOwner(IMemoryOwner<byte> data)
-    {
-        return new Packet(data);
-    }
-
+    public int Length => length;
 
     public void Dispose()
     {
-        _data.Dispose();
+        data.Dispose();
     }
 
     public short Opcode => new PacketReader(this).ReadShort();
-    public ReadOnlySpan<byte> Span => _data.Memory.Span;
+    public ReadOnlySpan<byte> Span => data.Memory[..length].Span;
 
     public void CopyTo(Span<byte> packetBuf)
     {
-        _data.Memory.Span.CopyTo(packetBuf);
+        data.Memory.Span.CopyTo(packetBuf);
     }
+
+    public PacketReader AsReader()
+    {
+        return new PacketReader(this);
+    }
+
+    public override string ToString()
+    {
+        var opcode = Opcode;
+        var data = Span[2..Length]; // Skip the 2-byte opcode
+
+        var hex = string.Join(" ", data.ToArray().Select(b => b.ToString("X2")));
+        return $"[{opcode:X4}] {hex}";
+    }
+
 }

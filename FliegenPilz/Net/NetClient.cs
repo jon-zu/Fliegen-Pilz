@@ -5,7 +5,7 @@ using FliegenPilz.Crypto;
 
 namespace FliegenPilz.Net;
 
-public class NetCodec: IDisposable, IAsyncDisposable
+public class NetClient: IDisposable, IAsyncDisposable
 {
     
     private const ushort MaxPacketSize = ushort.MaxValue / 2;
@@ -18,7 +18,7 @@ public class NetCodec: IDisposable, IAsyncDisposable
     private readonly byte[] _headerBuffer = new byte[4];
     private readonly byte[] _sendBuffer = new byte[MaxPacketSize + 4];
 
-    public NetCodec(NetworkStream stream, NetCipher recvCipher, NetCipher sendCipher)
+    public NetClient(NetworkStream stream, NetCipher recvCipher, NetCipher sendCipher)
     {
         _stream = stream;
         _recvCipher = recvCipher;
@@ -64,20 +64,20 @@ public class NetCodec: IDisposable, IAsyncDisposable
 
     }
     
-    public static  async Task<NetCodec> ConnectClientAsync(string host, int port, CancellationToken token)
+    public static  async Task<NetClient> ConnectClientAsync(string host, int port, CancellationToken token)
     {
         var client = new TcpClient();
         await client.ConnectAsync(host, port, token);
         
         // Read handshake
         var handshake = await ReadHandshakeAsync(client.GetStream(), token);
-        var sendCipher = new NetCipher(handshake.SendKey, handshake.Version.Version);
-        var recvCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert().Version);
+        var sendCipher = new NetCipher(handshake.SendKey, handshake.Version);
+        var recvCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert());
         
-        return new NetCodec(client.GetStream(), recvCipher, sendCipher);
+        return new NetClient(client.GetStream(), recvCipher, sendCipher);
     }
 
-    public static async Task<NetCodec> AcceptServerAsync(TcpClient client, Handshake handshake, CancellationToken token)
+    public static async Task<NetClient> AcceptServerAsync(TcpClient client, Handshake handshake, CancellationToken token)
     {
         var stream = client.GetStream();
         
@@ -85,9 +85,9 @@ public class NetCodec: IDisposable, IAsyncDisposable
         await WriteHandshakeAsync(stream, handshake, token);
         
         // Create ciphers
-        var sendCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert().Version);
-        var recvCipher = new NetCipher(handshake.SendKey, handshake.Version.Version);
-        return new NetCodec(stream, recvCipher, sendCipher);
+        var sendCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert());
+        var recvCipher = new NetCipher(handshake.SendKey, handshake.Version);
+        return new NetClient(stream, recvCipher, sendCipher);
     }
     
     
@@ -110,7 +110,7 @@ public class NetCodec: IDisposable, IAsyncDisposable
             await _stream.ReadExactlyAsync(memory, token);
             _recvCipher.Decrypt(memory.Span);
 
-            return Packet.FromMemoryOwner(memoryOwner);
+            return new Packet(memoryOwner, size);
         }
         catch
         {

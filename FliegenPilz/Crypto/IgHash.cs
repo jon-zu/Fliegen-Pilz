@@ -56,7 +56,7 @@ public class IgContext
     
     public uint InitialSeed { get; }
 
-    public static readonly IgContext Default = new IgContext(DefaultIgShuffle, DefaultIgSeed);
+    public static readonly IgContext Default = new(DefaultIgShuffle, DefaultIgSeed);
 
 
     private byte Shuffle(byte a) => _shuffleKey[a];
