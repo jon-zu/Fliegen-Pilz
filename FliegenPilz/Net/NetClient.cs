@@ -1,32 +1,37 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using FliegenPilz.Crypto;
 
 namespace FliegenPilz.Net;
 
+/// <summary>
+/// Bidirectional client abstraction handling encrypted packet IO over a <see cref="NetworkStream"/>.
+/// </summary>
 public class NetClient: IDisposable, IAsyncDisposable
 {
-    
-    private const ushort MaxPacketSize = ushort.MaxValue / 2;
+    /// <summary>Maximum supported payload size (excluding 4-byte transport header).</summary>
+    public const ushort MaxPacketSize = ushort.MaxValue / 2; // Keep symmetrical with reader validation.
     private const ushort MaxHandshakeSize = 128;
-    
+
     private readonly NetworkStream _stream;
     private readonly NetCipher _recvCipher;
     private readonly NetCipher _sendCipher;
 
-    private readonly byte[] _headerBuffer = new byte[4];
-    private readonly byte[] _sendBuffer = new byte[MaxPacketSize + 4];
+    private readonly byte[] _headerBuffer = new byte[4]; // Reused for every read.
+    private readonly byte[] _sendBuffer = new byte[MaxPacketSize + 4]; // 4 header + payload.
 
     public NetClient(NetworkStream stream, NetCipher recvCipher, NetCipher sendCipher)
     {
-        _stream = stream;
-        _recvCipher = recvCipher;
-        _sendCipher = sendCipher;
+        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
+        _recvCipher = recvCipher ?? throw new ArgumentNullException(nameof(recvCipher));
+        _sendCipher = sendCipher ?? throw new ArgumentNullException(nameof(sendCipher));
     }
 
 
-    static async Task<Handshake> ReadHandshakeAsync(NetworkStream stream, CancellationToken token)
+    /// <summary>Reads and decodes an initial handshake from the remote peer.</summary>
+    private static async Task<Handshake> ReadHandshakeAsync(NetworkStream stream, CancellationToken token)
     {
         // Read Handshake size
         var headerBuffer = new byte[2];
@@ -34,7 +39,7 @@ public class NetClient: IDisposable, IAsyncDisposable
         var handshakeSize = BinaryPrimitives.ReadUInt16LittleEndian(headerBuffer);
 
         if (handshakeSize is 0 or > MaxHandshakeSize)
-            throw new Exception("Invalid Handshake size");
+            throw new InvalidDataException("Invalid handshake size.");
 
         // Read Handshake
         using var memoryOwner = MemoryPool<byte>.Shared.Rent(handshakeSize);
@@ -45,7 +50,8 @@ public class NetClient: IDisposable, IAsyncDisposable
         return Handshake.Decode(ref pr);
     }
 
-    static async Task WriteHandshakeAsync(NetworkStream networkStream, Handshake handshake, CancellationToken token)
+    /// <summary>Encodes and writes a handshake to the network stream.</summary>
+    private static async Task WriteHandshakeAsync(NetworkStream networkStream, Handshake handshake, CancellationToken token)
     {
         // Write Handshake with dummy size
          var pw = new PacketWriter(MaxHandshakeSize + 2);
@@ -64,19 +70,19 @@ public class NetClient: IDisposable, IAsyncDisposable
 
     }
     
-    public static  async Task<NetClient> ConnectClientAsync(string host, int port, CancellationToken token)
+    /// <summary>Connects to a server endpoint and performs the client-side handshake.</summary>
+    public static async Task<NetClient> ConnectClientAsync(string host, int port, CancellationToken token)
     {
-        var client = new TcpClient();
-        await client.ConnectAsync(host, port, token);
-        
-        // Read handshake
-        var handshake = await ReadHandshakeAsync(client.GetStream(), token);
+        var tcp = new TcpClient();
+        await tcp.ConnectAsync(host, port, token);
+        var stream = tcp.GetStream();
+        var handshake = await ReadHandshakeAsync(stream, token);
         var sendCipher = new NetCipher(handshake.SendKey, handshake.Version);
         var recvCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert());
-        
-        return new NetClient(client.GetStream(), recvCipher, sendCipher);
+        return new NetClient(stream, recvCipher, sendCipher);
     }
 
+    /// <summary>Performs the server-side accept path: write handshake then construct a <see cref="NetClient"/>.</summary>
     public static async Task<NetClient> AcceptServerAsync(TcpClient client, Handshake handshake, CancellationToken token)
     {
         var stream = client.GetStream();
@@ -91,6 +97,9 @@ public class NetClient: IDisposable, IAsyncDisposable
     }
     
     
+    /// <summary>
+    /// Reads, decrypts and returns the next packet. The caller owns and must dispose the returned packet.
+    /// </summary>
     public async Task<Packet> ReadPacketAsync(CancellationToken token)
     {
         // Read header
@@ -99,8 +108,8 @@ public class NetClient: IDisposable, IAsyncDisposable
         var encryptedHdr = BinaryPrimitives.ReadUInt32LittleEndian(headerMemory.Span);
         var size = _recvCipher.DecryptHeader(encryptedHdr);
         
-        if(size is 0 or > ushort.MaxValue / 2)
-            throw new Exception("Packet size exceeds maximum packet size");
+        if (size is 0 or > MaxPacketSize)
+            throw new InvalidDataException("Invalid packet size.");
         
         // Read the actual packet
         var memoryOwner = MemoryPool<byte>.Shared.Rent(size);
@@ -119,12 +128,15 @@ public class NetClient: IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Encrypts and writes a packet payload. The provided span must not include the transport header.
+    /// </summary>
     public ValueTask WritePacketAsync(ReadOnlySpan<byte> data, CancellationToken token)
     {
         // Write header
         var len = (ushort)data.Length;
-        if(len > MaxPacketSize)
-            throw new Exception("Packet size exceeds maximum packet size");
+        if (len > MaxPacketSize)
+            throw new InvalidDataException("Packet size exceeds maximum.");
         
         var hdr = _sendCipher.EncryptHeader(len);
         BinaryPrimitives.WriteUInt32LittleEndian(_sendBuffer, hdr);
@@ -139,13 +151,9 @@ public class NetClient: IDisposable, IAsyncDisposable
         return _stream.WriteAsync(_sendBuffer.AsMemory(0, len + 4), token);
     }
 
-    public void Dispose()
-    {
-        _stream.Dispose();
-    }
+    /// <inheritdoc />
+    public void Dispose() => _stream.Dispose();
 
-    public async ValueTask DisposeAsync()
-    {
-        await _stream.DisposeAsync();
-    }
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync() => await _stream.DisposeAsync();
 }

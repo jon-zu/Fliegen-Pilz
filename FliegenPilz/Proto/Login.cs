@@ -1086,3 +1086,77 @@ public record struct CharViewListResp(): IPacketMessage
 
     public static SendOpcodes Opcode { get; } = SendOpcodes.SelectWorldResult; //TODO should be it's own struct
 }
+
+
+public record struct HardwareInfo() : IDecodePacket<HardwareInfo>
+{
+    public string MacAddress { get; set; } = string.Empty;
+    public string HddSerialNumber { get; set; } = string.Empty;
+    public static HardwareInfo DecodePacket(ref PacketReader reader)
+    {
+        return new HardwareInfo
+        {
+            MacAddress = reader.ReadString(),
+            HddSerialNumber = reader.ReadString()
+        };
+    }
+}
+
+public record struct SelectCharRequest : IDecodePacket<SelectCharRequest>
+{
+    public SelectCharRequest()
+    {
+        HardwareInfo = default;
+    }
+
+    public uint CharId { get; set; } = 0;
+    public HardwareInfo HardwareInfo { get; set; }
+    
+    public static SelectCharRequest DecodePacket(ref PacketReader reader)
+    {
+        return new SelectCharRequest
+        {
+            CharId = reader.ReadUInt(),
+            HardwareInfo = reader.Read<HardwareInfo>()
+        };
+    }
+}
+
+
+public record struct MigrateInfo : IEncodePacket
+{
+    public uint Address4 { get; set; }
+    public ushort Port { get; set; }
+    public uint CharId { get; set; }
+    public bool Premium { get; set; } = false;
+    public uint PremiumArgument { get; set; } = 0;
+
+    public MigrateInfo(uint addr, ushort port, uint charId)
+    {
+        Address4 = addr;
+        Port = port;
+        CharId = charId;
+    }
+
+    public void EncodePacket(ref PacketWriter w)
+    {
+        w.WriteUInt(Address4);
+        w.WriteUShort(Port);
+        w.WriteUInt(CharId);
+        w.WriteBool(Premium);
+        w.WriteUInt(PremiumArgument);
+    }
+}
+
+public record struct SelectCharResponse : IPacketMessage
+{
+    public MigrateInfo MigrateInfo { get; set; }
+    public void EncodePacket(ref PacketWriter w)
+    {
+        w.WriteByte(0);//No error
+        w.WriteByte(0); // Success
+        MigrateInfo.EncodePacket(ref w);
+    }
+
+    public static SendOpcodes Opcode { get; } = SendOpcodes.SelectCharacterResult;
+}

@@ -1,3 +1,4 @@
+using System.Net;
 using FliegenPilz.Net;
 using FliegenPilz.Proto;
 using Microsoft.Extensions.Logging;
@@ -31,6 +32,9 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
                 return HandleCheckUserLimit(DecodeMsg<CheckUserLimitReq>(ref reader), ctx, ct);
             case RecvOpcodes.SelectWorld:
                 return HandleSelectWorld(DecodeMsg<SelectWorldReq>(ref reader), ctx, ct);
+            case RecvOpcodes.SelectCharacter:
+                return HandleSelectChar(DecodeMsg<SelectCharRequest>(ref reader), ctx, ct);
+
             default:
                 logger.LogInformation("Unhandled opcode: {opcode}", op);
                 return Task.CompletedTask;
@@ -42,6 +46,31 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
         logger.LogError(e, "Exception in LoginHandler");
     }
 
+
+    private async Task HandleSelectChar(SelectCharRequest req, RpcContext ctx, CancellationToken ct)
+    {
+        //TODO fix that up
+        var addr = IPAddress.Loopback;
+        var bytes = addr.GetAddressBytes();
+        var addr4 = (uint)(bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24));
+        
+        // Convert to uint
+        ushort port = 8485;
+
+        await ctx.ReplyAsync(new SelectCharResponse
+        {
+            MigrateInfo = new MigrateInfo
+            {
+                Address4 = addr4,
+                Port = port,
+                CharId = 1,
+                Premium = false,
+                PremiumArgument = 0
+            }
+        }, ct);
+
+        logger.LogInformation("Selected char: {} - Sending Migration", req.CharId);
+    }
 
     private async Task HandleSelectWorld(SelectWorldReq req, RpcContext ctx, CancellationToken ct)
     {
@@ -89,10 +118,9 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
                 Mp = 10,
                 MaxMp = 100,
                 Int = 10,
-
             }
         };
-        
+
         var resp = new CharViewListResp
         {
             Characters = new ShroomList<I8, CharRankView>(new List<CharRankView>()),
@@ -100,16 +128,15 @@ public class LoginHandler(ILogger<LoginHandler> logger) : IRpcHandler
             Slots = 0,
             BuySlots = 0
         };
-        
+
         resp.Characters.Items.Add(new CharRankView()
         {
             View = character,
             RankInfo = null
         });
-        
-        
-        await ctx.ReplyAsync(resp, ct);
 
+
+        await ctx.ReplyAsync(resp, ct);
 
 
         logger.LogInformation("SelectWorldReq: {}", req.ToString());
