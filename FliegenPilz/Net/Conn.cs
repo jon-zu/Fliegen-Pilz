@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace FliegenPilz.Net;
 
@@ -12,12 +13,12 @@ namespace FliegenPilz.Net;
 /// </remarks>
 public sealed class Conn
 {
-    private readonly NetClient _client;
+    private readonly INetworkConnection _client;
     private readonly ChannelWriter<Packet> _inboundWriter; // producer writes received packets here
     private readonly ChannelReader<Packet> _outboundReader; // consumer provides packets to send
     private readonly CancellationToken _ct;
 
-    public Conn(NetClient client, ChannelWriter<Packet> inboundWriter, ChannelReader<Packet> outboundReader, CancellationToken ct)
+    public Conn(INetworkConnection client, ChannelWriter<Packet> inboundWriter, ChannelReader<Packet> outboundReader, CancellationToken ct)
     {
         _client = client;
         _inboundWriter = inboundWriter;
@@ -75,6 +76,10 @@ public sealed class Conn
         {
             // normal shutdown
         }
+        finally
+        {
+            await _client.DisposeAsync();
+        }
     }
 }
 
@@ -87,24 +92,26 @@ public sealed class ConnHandle : IDisposable
     private readonly CancellationTokenSource _cts;
     private readonly Task _connTask;
     private readonly ChannelWriter<Packet> _outboundWriter;
+    private readonly INetworkConnection _connection;
 
-    private ConnHandle(Task connTask, ChannelWriter<Packet> outboundWriter, ChannelReader<Packet> inboundReader, CancellationTokenSource cts)
+    private ConnHandle(INetworkConnection connection, Task connTask, ChannelWriter<Packet> outboundWriter, ChannelReader<Packet> inboundReader, CancellationTokenSource cts)
     {
         _cts = cts;
         _outboundWriter = outboundWriter;
         Reader = inboundReader;
         _connTask = connTask;
+        _connection = connection;
     }
 
     /// <summary>Starts a connection pump for the given <see cref="NetClient"/> with bounded channel capacity.</summary>
-    public static ConnHandle Run(NetClient client, int capacity)
+    public static ConnHandle Run(INetworkConnection client, int capacity)
     {
         var inbound = Channel.CreateBounded<Packet>(capacity);   // packets received from network -> consumer reads
         var outbound = Channel.CreateBounded<Packet>(capacity);  // packets to send -> producer writes
         var cts = new CancellationTokenSource();
         var conn = new Conn(client, inbound.Writer, outbound.Reader, cts.Token);
         var task = conn.RunAsync();
-        return new ConnHandle(task, outbound.Writer, inbound.Reader, cts);
+        return new ConnHandle(client, task, outbound.Writer, inbound.Reader, cts);
     }
 
     /// <summary>Inbound packets from remote peer (caller must dispose after processing).</summary>
@@ -116,12 +123,25 @@ public sealed class ConnHandle : IDisposable
     /// <summary>Asynchronously enqueues an outbound packet (ownership transfers to connection).</summary>
     public ValueTask SendAsync(Packet packet, CancellationToken ct = default) => _outboundWriter.WriteAsync(packet, ct);
 
+    /// <summary>Completion task signaled when the underlying connection loops exit.</summary>
+    public Task Completion => _connTask;
+
+    /// <summary>Await connection completion with optional cancellation.</summary>
+    public ValueTask WaitAsync(CancellationToken ct = default) =>
+        ct.CanBeCanceled ? new ValueTask(_connTask.WaitAsync(ct)) : new ValueTask(_connTask);
+
     /// <summary>Requests shutdown and waits (best-effort) for the connection loop to stop.</summary>
     public void Dispose()
     {
         _cts.Cancel();
         _cts.Dispose();
-        // Fire-and-forget: if caller wants to await they can expose an explicit WaitAsync later.
-        _connTask.Dispose();
+        try
+        {
+            _connTask.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // ignore
+        }
     }
 }

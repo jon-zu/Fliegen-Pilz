@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using FliegenPilz.Crypto;
@@ -9,7 +10,7 @@ namespace FliegenPilz.Net;
 /// <summary>
 /// Bidirectional client abstraction handling encrypted packet IO over a <see cref="NetworkStream"/>.
 /// </summary>
-public class NetClient: IDisposable, IAsyncDisposable
+public class NetClient : INetworkConnection
 {
     /// <summary>Maximum supported payload size (excluding 4-byte transport header).</summary>
     public const ushort MaxPacketSize = ushort.MaxValue / 2; // Keep symmetrical with reader validation.
@@ -18,16 +19,24 @@ public class NetClient: IDisposable, IAsyncDisposable
     private readonly NetworkStream _stream;
     private readonly NetCipher _recvCipher;
     private readonly NetCipher _sendCipher;
+    private readonly IPEndPoint _remoteEndPoint;
+    private readonly IPEndPoint _localEndPoint;
 
     private readonly byte[] _headerBuffer = new byte[4]; // Reused for every read.
     private readonly byte[] _sendBuffer = new byte[MaxPacketSize + 4]; // 4 header + payload.
 
-    public NetClient(NetworkStream stream, NetCipher recvCipher, NetCipher sendCipher)
+    public NetClient(NetworkStream stream, NetCipher recvCipher, NetCipher sendCipher, IPEndPoint? localEndPoint = null, IPEndPoint? remoteEndPoint = null)
     {
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
         _recvCipher = recvCipher ?? throw new ArgumentNullException(nameof(recvCipher));
         _sendCipher = sendCipher ?? throw new ArgumentNullException(nameof(sendCipher));
+        _localEndPoint = localEndPoint ?? new IPEndPoint(IPAddress.Any, 0);
+        _remoteEndPoint = remoteEndPoint ?? new IPEndPoint(IPAddress.Any, 0);
     }
+
+    public IPEndPoint RemoteEndPoint => _remoteEndPoint;
+
+    public IPEndPoint LocalEndPoint => _localEndPoint;
 
 
     /// <summary>Reads and decodes an initial handshake from the remote peer.</summary>
@@ -79,7 +88,9 @@ public class NetClient: IDisposable, IAsyncDisposable
         var handshake = await ReadHandshakeAsync(stream, token);
         var sendCipher = new NetCipher(handshake.SendKey, handshake.Version);
         var recvCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert());
-        return new NetClient(stream, recvCipher, sendCipher);
+        return new NetClient(stream, recvCipher, sendCipher,
+            (IPEndPoint)tcp.Client.LocalEndPoint!,
+            (IPEndPoint)tcp.Client.RemoteEndPoint!);
     }
 
     /// <summary>Performs the server-side accept path: write handshake then construct a <see cref="NetClient"/>.</summary>
@@ -93,7 +104,9 @@ public class NetClient: IDisposable, IAsyncDisposable
         // Create ciphers
         var sendCipher = new NetCipher(handshake.ReceiveKey, handshake.Version.Invert());
         var recvCipher = new NetCipher(handshake.SendKey, handshake.Version);
-        return new NetClient(stream, recvCipher, sendCipher);
+        return new NetClient(stream, recvCipher, sendCipher,
+            (IPEndPoint)client.Client.LocalEndPoint!,
+            (IPEndPoint)client.Client.RemoteEndPoint!);
     }
     
     
